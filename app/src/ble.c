@@ -78,24 +78,7 @@ static uint8_t active_profile;
 #define DEVICE_NAME CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
 
-BUILD_ASSERT(DEVICE_NAME_LEN <= 16, "ERROR: BLE device name is too long. Max length: 16");
-
-static const struct bt_data zmk_ble_ad[] = {
-#if IS_HOST_PERIPHERAL
-    BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
-    BT_DATA_BYTES(BT_DATA_GAP_APPEARANCE, 0xC1, 0x03),
-#endif
-    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-    BT_DATA_BYTES(BT_DATA_UUID16_SOME,
-#if IS_HOST_PERIPHERAL
-                  0x12, 0x18, /* HID Service */
-#endif
-                  0x0f, 0x18 /* Battery Service */
-                  ),
-#if IS_SPLIT_PERIPHERAL
-    BT_DATA_BYTES(BT_DATA_UUID128_ALL, ZMK_SPLIT_BT_SERVICE_UUID)
-#endif
-};
+BUILD_ASSERT(DEVICE_NAME_LEN <= 12, "ERROR: BLE device name is too long. Max length: 12");
 
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_BLE_ROLE_CENTRAL)
 
@@ -145,6 +128,28 @@ bool zmk_ble_active_profile_is_connected() {
     return true;
 }
 
+#if IS_HOST_PERIPHERAL
+#define UPDATE_ADV_NAME()                                                                         \
+  {    \
+    BT_DATA(BT_DATA_NAME_COMPLETE, adv_name, len),  \
+    BT_DATA_BYTES(BT_DATA_GAP_APPEARANCE, 0xC1, 0x03),  \
+    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),  \
+    BT_DATA_BYTES(BT_DATA_UUID16_SOME,  \
+                  0x12, 0x18, /* HID Service */ \
+                  0x0f, 0x18 /* Battery Service */  \
+                  ),  \
+  };
+#elif IS_SPLIT_PERIPHERAL
+#define UPDATE_ADV_NAME() \
+  { \
+    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)), \
+    BT_DATA_BYTES(BT_DATA_UUID16_SOME, \
+                  0x0f, 0x18 /* Battery Service */ \
+                  ), \
+    BT_DATA_BYTES(BT_DATA_UUID128_ALL, ZMK_SPLIT_BT_SERVICE_UUID) \
+  };
+#endif
+
 #define CHECKED_ADV_STOP()                                                                         \
     err = bt_le_adv_stop();                                                                        \
     advertising_status = ZMK_ADV_NONE;                                                             \
@@ -181,6 +186,12 @@ int update_advertising() {
     int err = 0;
     bt_addr_le_t *addr;
     struct bt_conn *conn;
+#if IS_HOST_PERIPHERAL
+    char adv_name[16];
+    const int len = snprintf( adv_name, 16, DEVICE_NAME " %u", active_profile );
+    LOG_DBG("Changed name to %s", log_strdup(adv_name) );
+#endif
+    struct bt_data zmk_ble_ad[] = UPDATE_ADV_NAME();
     enum advertising_type desired_adv = ZMK_ADV_NONE;
 
     if (zmk_ble_active_profile_is_open()) {
